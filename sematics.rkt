@@ -61,6 +61,35 @@
     ; Comma here matches any var
     [`(lambda (,varname) ,body)
      (cons σ (cons e θ))]
+
+    ; Ref
+    [`(ref ,e)
+     (let* ([eresult (ev σ θ e)]
+            ; Notice the `addr`. This wraps the number returned by
+            ; fresh in an `addr` struct.
+            [value (cdr eresult)]
+            [σ1 (car eresult)]
+            [new-address (addr (fresh))])
+       (cons (hash-set σ1 new-address value) new-address))]
+
+    ; Deref
+    [`(deref ,e)
+     (let* ([eresult (ev σ θ e)]
+            [σ1 (car eresult)]
+            [addr (cdr eresult)])
+       (cons σ1 (hash-ref σ1 addr)))]
+    
+    [`(set! ,e1 ,e2)
+     (let* ([eresult1 (ev σ θ e1)]
+            [σ1 (car eresult1)]
+            [a-or-bot (cdr eresult1)]
+            [eresult2 (ev σ1 θ e2)]
+            [σ2 (car eresult2)]
+            [v (cdr eresult2)])
+       (match a-or-bot
+         ['bot (cons σ2 v)]
+         [(addr a) (cons (hash-set σ2 a-or-bot v) v)]))]
+
     ; Note that we merge the two rules S-App / S-App-Bot here, since
     ; the antecedents of both rules are the same.
     [`(,e1 ,e2)
@@ -76,14 +105,7 @@
          [`(lambda (,var) ,body)
           (ev σ2 (hash-set θ1 var v1) body)]
          ; S-App-Bot
-         ['bot (cons σ 'bot)]))]
-    ; Ref
-    [`(ref ,e)
-     (let* ([eresult (ev σ θ e)]
-            ; Notice the `addr`. This wraps the number returned by
-            ; fresh in an `addr` struct.
-            [new-address (addr (fresh))])
-       (cons (hash-set (cdr eresult) new-address) new-address))]))
+         ['bot (cons σ 'bot)]))]))
 
 (define (evaluate e) (cdr (ev (hash) (hash) e)))
 
@@ -99,4 +121,9 @@
   (test-case "S-App-2" (check-equal? (evaluate '((lambda (x) x) 1)) 1))
   ; Note that within the test you need to put bot rather than 'bot
   ; (this tripped me up).
-  (test-case "S-App-Bot" (check-equal? (evaluate '((lambda (x) bot) 1)) 'bot))))
+  (test-case "S-App-Bot" (check-equal? (evaluate '((lambda (x) bot) 1)) 'bot))
+  ; Create a ref to 23, and then dereference that ref
+  (test-case "Ref-Deref" (check-equal? (evaluate '((lambda (x) (deref x)) (ref 23))) 23))
+  (test-case "Set!-Deref" (check-equal? (evaluate '((lambda (x) ((lambda (y) (deref x)) (set! x 11))) (ref 23)))
+                                        11))))
+
